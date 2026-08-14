@@ -6,7 +6,7 @@
 
 ## What This Does (Simple Version)
 
-> "When news breaks, this bot instantly finds which betting markets are affected and tells you what to buy before the price moves."
+> When news breaks, this bot instantly finds which betting markets are affected and tells you what to buy before the price moves.
 
 ---
 
