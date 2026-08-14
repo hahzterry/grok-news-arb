@@ -80,7 +80,7 @@ async function verifyMarkets(topic: string) {
     // Statistics
     console.log(chalk.magenta.bold('\n📊 VERIFICATION STATISTICS:'));
     console.log(chalk.gray('─'.repeat(60)));
-    console.log(`   Markets Scanned:  ${chalk.cyan(result.statistics.marketsScanned.kalshi)} Kalshi, ${chalk.purple(result.statistics.marketsScanned.polymarket)} Polymarket`);
+    console.log(`   Markets Scanned:  ${chalk.cyan(result.statistics.marketsScanned.kalshi)} Kalshi, ${chalk.magneta(result.statistics.marketsScanned.polymarket)} Polymarket`);
     console.log(`   Matches Found:    ${chalk.white.bold(result.statistics.matchesFound)}`);
     console.log(`   Safe to Trade:    ${chalk.green.bold(result.statistics.safeToTrade)}`);
     console.log(`   Proceed Caution:  ${chalk.yellow.bold(result.statistics.proceedWithCaution)}`);
