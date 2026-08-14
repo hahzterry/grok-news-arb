@@ -3,7 +3,7 @@
  * Uses Vercel AI SDK with AI Gateway to access multiple model providers
  */
 
-import { generateText, tool, stepCountIs } from 'ai';
+import { generateText, tool } from 'ai';  // <-- removed stepCountIs
 import { z } from 'zod';
 import {
   searchBreakingNews,
@@ -104,7 +104,7 @@ Provide a complete analysis with specific trade recommendations.`,
       estimateFairValue,
       generateTradeRecommendation,
     },
-    stopWhen: stepCountIs(10), // Allow up to 10 steps for complete analysis
+    stopWhen: ({ step }) => step >= 10, // <-- fixed: replaced stepCountIs(10)
     maxTokens: 4096,
   });
 
