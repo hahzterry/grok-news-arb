@@ -3,7 +3,7 @@
  * Uses Vercel AI SDK with AI Gateway to access multiple model providers
  */
 
-import { generateText, stepCountIs } from 'ai';
+import { generateText } from 'ai';
 
 import {
   analyzeHeadline,
@@ -12,8 +12,6 @@ import {
   searchPolymarketMarkets,
   estimateFairValue,
   generateTradeRecommendation,
-
-  // Replay Labs - Primary market discovery
   semanticSearchMarkets,
   getMarketPrice,
   findMarketOverlaps,
@@ -46,39 +44,53 @@ export interface MarketSignal {
   reasoning: string;
 }
 
-const SYSTEM_PROMPT = `You are an expert prediction markets arbitrage agent. Your job is to:
+const SYSTEM_PROMPT = `You are an expert prediction markets arbitrage agent.
 
-1. Analyze breaking news headlines for market impact
-2. Find related prediction markets on Kalshi and Polymarket
-3. Estimate fair value shifts based on the news
-4. Generate trade signals with entry/exit recommendations
+Your job is to:
+
+1. Analyze breaking news headlines for market impact.
+2. Find related prediction markets on Kalshi and Polymarket.
+3. Estimate fair value shifts based on the news.
+4. Generate trade signals with entry and exit recommendations.
 
 WORKFLOW:
-1. First, analyze the headline to understand its impact (category, magnitude, direction)
-2. Search for related markets on BOTH Kalshi and Polymarket
-3. For each relevant market found, estimate fair value given the news
-4. Generate trade recommendations for markets with significant edge (>5%)
+
+1. Analyze the headline to understand:
+   - category
+   - magnitude
+   - direction
+   - confidence
+
+2. Search for related markets on BOTH Kalshi and Polymarket.
+
+3. For relevant markets:
+   - obtain current prices
+   - check liquidity
+   - compare current price against estimated fair value
+
+4. Generate trade recommendations only when there is a meaningful edge.
 
 IMPORTANT:
-- Only recommend trades with edge > 5% and confidence > 0.6
-- Consider liquidity - avoid markets with < $10,000 liquidity
-- Factor in slippage for position sizing
-- Be conservative with magnitude estimates
-- Verify news if possible before generating signals
-- Never invent market prices, liquidity, tickers, or news verification
-- Clearly distinguish between verified data and estimates
+
+- Only recommend trades with edge > 5%.
+- Prefer confidence > 0.6.
+- Avoid markets with less than $10,000 liquidity.
+- Factor in slippage.
+- Be conservative with magnitude estimates.
+- Verify breaking news whenever possible.
+- Never invent market prices, liquidity, tickers, or news verification.
+- Clearly distinguish verified information from estimates.
 
 OUTPUT:
+
 Provide a structured summary of all trade opportunities found.`;
 
 /**
- * Run the arbitrage agent on a news headline
+ * Run the full arbitrage agent on a breaking-news headline.
  */
 export async function runArbitrageAgent(
   headline: string
 ): Promise<ArbitrageSignal> {
-  const startTime = Date.now();
-
   const result = await generateText({
     model: gateway(MODELS.primary),
 
@@ -88,37 +100,46 @@ export async function runArbitrageAgent(
 
 "${headline}"
 
-Steps:
-1. Analyze the headline for market impact (category, magnitude, direction)
-2. Use semanticSearchMarkets to find related prediction markets on both Polymarket and Kalshi
-3. For the top 5 most relevant markets (highest similarity scores), get fresh prices with getMarketPrice
-4. Estimate fair value for each market given the news
-5. Generate trade recommendations for markets with >5% edge
-6. Optionally check for cross-venue overlaps with findMarketOverlaps for arbitrage
+Follow this workflow:
+
+1. Analyze the headline for market impact.
+2. Use semanticSearchMarkets to find related prediction markets across Polymarket and Kalshi.
+3. Identify up to the 5 most relevant markets.
+4. Use getMarketPrice to obtain fresh prices.
+5. Estimate fair value for each market.
+6. Generate trade recommendations for opportunities with greater than 5% edge.
+7. Optionally use findMarketOverlaps to identify cross-venue arbitrage.
 
 Provide a complete analysis with specific trade recommendations.`,
 
     tools: {
-      // News / analysis
       analyzeHeadline,
 
-      // Replay Labs semantic search
       semanticSearchMarkets,
       getMarketPrice,
       findMarketOverlaps,
 
-      // Individual venue searches
       searchKalshiMarkets,
       searchPolymarketMarkets,
       getKalshiOrderbook,
 
-      // Fair value / trade signals
       estimateFairValue,
       generateTradeRecommendation,
     },
 
-    // AI SDK v5-compatible step limit
-    stopWhen: stepCountIs(10),
+    /*
+     * IMPORTANT:
+     *
+     * The installed AI SDK type exposes `steps`,
+     * not `step`.
+     *
+     * Do NOT use:
+     *
+     * stopWhen: ({ step }) => step >= 10
+     *
+     * Using `steps.length` avoids the type mismatch.
+     */
+    stopWhen: ({ steps }) => steps.length >= 10,
 
     maxTokens: 4096,
   });
@@ -126,15 +147,17 @@ Provide a complete analysis with specific trade recommendations.`,
   const markets: MarketSignal[] = [];
 
   /**
-   * Parse tool results from every agent step.
+   * Parse tool results from each agent step.
    */
   for (const step of result.steps) {
     for (const toolResult of step.toolResults ?? []) {
       if (
-        toolResult.toolName === 'generateTradeRecommendation' &&
+        toolResult.toolName ===
+          'generateTradeRecommendation' &&
         toolResult.result?.recommendation
       ) {
-        const rec = toolResult.result.recommendation;
+        const rec =
+          toolResult.result.recommendation;
 
         markets.push({
           platform: rec.platform,
@@ -161,10 +184,10 @@ Provide a complete analysis with specific trade recommendations.`,
    * Sort opportunities by absolute edge.
    */
   markets.sort(
-    (a, b) => Math.abs(b.edge) - Math.abs(a.edge)
+    (a, b) =>
+      Math.abs(b.edge) -
+      Math.abs(a.edge)
   );
-
-  const duration = Date.now() - startTime;
 
   return {
     headline,
@@ -177,23 +200,25 @@ Provide a complete analysis with specific trade recommendations.`,
 }
 
 /**
- * Quick analysis without the full agent workflow.
+ * Quick analysis without running the full agent workflow.
  *
- * Uses Replay Labs semantic search to find related markets
+ * Uses Replay Labs semantic search to find markets
  * across Polymarket and Kalshi.
  */
-export async function quickAnalyze(headline: string) {
+export async function quickAnalyze(
+  headline: string
+) {
   /**
-   * 1. Analyze headline
+   * 1. Analyze the headline.
    */
-  const analysis = await analyzeHeadline.execute(
-    { headline },
-    {} as any
-  );
+  const analysis =
+    await analyzeHeadline.execute(
+      { headline },
+      {} as any
+    );
 
   /**
-   * 2. Search both Polymarket and Kalshi
-   * through Replay Labs semantic search.
+   * 2. Search both Polymarket and Kalshi.
    */
   const semanticResult =
     await semanticSearchMarkets.execute(
@@ -206,50 +231,56 @@ export async function quickAnalyze(headline: string) {
     );
 
   /**
-   * 3. Normalize market results.
+   * 3. Normalize the market results.
    */
-  const allMarkets = (semanticResult.markets || []).map(
-    (result: any) => {
-      const m = result.market || result;
+  const allMarkets = (
+    semanticResult.markets || []
+  ).map((result: any) => {
+    const market =
+      result.market || result;
 
-      return {
-        ...m,
+    return {
+      ...market,
 
-        platform: (
-          m.venue ||
-          m.platform ||
+      platform: String(
+        market.venue ||
+          market.platform ||
           'unknown'
-        ).toLowerCase(),
+      ).toLowerCase(),
 
-        ticker: m.id,
+      ticker:
+        market.id,
 
-        title: m.question,
+      title:
+        market.question,
 
-        question: m.question,
+      question:
+        market.question,
 
-        yesPrice:
-          m.metadata?.yesPrice ??
-          m.yesPrice ??
-          0.5,
+      yesPrice:
+        market.metadata?.yesPrice ??
+        market.yesPrice ??
+        0.5,
 
-        liquidity:
-          m.metadata?.liquidity ??
-          m.metadata?.volume ??
-          m.liquidity ??
-          50000,
+      liquidity:
+        market.metadata?.liquidity ??
+        market.metadata?.volume ??
+        market.liquidity ??
+        50000,
 
-        similarityScore:
-          result.score ?? 0.5,
-      };
-    }
-  );
+      similarityScore:
+        result.score ?? 0.5,
+    };
+  });
 
   const signals: MarketSignal[] = [];
 
   /**
-   * 4. Analyze the five strongest matching markets.
+   * 4. Analyze the five strongest market matches.
    */
-  for (const market of allMarkets.slice(0, 5)) {
+  for (
+    const market of allMarkets.slice(0, 5)
+  ) {
     const currentPrice =
       market.yesPrice ??
       market.outcomes?.[0]?.price ??
@@ -290,16 +321,14 @@ export async function quickAnalyze(headline: string) {
         {} as any
       );
 
-    /**
-     * Ignore markets without a valid estimate.
-     */
-    if (!fairValueResult.estimate) {
+    if (
+      !fairValueResult.estimate
+    ) {
       continue;
     }
 
     /**
-     * Only continue when the estimated edge
-     * is meaningful.
+     * Ignore insignificant edges.
      */
     if (
       Math.abs(
@@ -310,9 +339,9 @@ export async function quickAnalyze(headline: string) {
     }
 
     /**
-     * Generate trade recommendation.
+     * Generate a trade recommendation.
      */
-    const rec =
+    const recommendation =
       await generateTradeRecommendation.execute(
         {
           marketTicker:
@@ -329,10 +358,14 @@ export async function quickAnalyze(headline: string) {
           currentPrice,
 
           fairValue:
-            fairValueResult.estimate.fairValue,
+            fairValueResult
+              .estimate
+              .fairValue,
 
           edge:
-            fairValueResult.estimate.edge,
+            fairValueResult
+              .estimate
+              .edge,
 
           liquidity:
             market.liquidity ??
@@ -343,12 +376,19 @@ export async function quickAnalyze(headline: string) {
         {} as any
       );
 
-    if (!rec.recommendation) {
+    if (
+      !recommendation.recommendation
+    ) {
       continue;
     }
 
+    const rec =
+      recommendation.recommendation;
+
     signals.push({
-      platform: market.platform,
+      platform:
+        market.platform,
+
       ticker:
         market.ticker ||
         market.id,
@@ -360,37 +400,43 @@ export async function quickAnalyze(headline: string) {
       currentPrice,
 
       fairValue:
-        fairValueResult.estimate.fairValue,
+        fairValueResult
+          .estimate
+          .fairValue,
 
       edge:
-        fairValueResult.estimate.edge,
+        fairValueResult
+          .estimate
+          .edge,
 
       edgePercent:
-        fairValueResult.estimate.edgePercent,
+        fairValueResult
+          .estimate
+          .edgePercent,
 
       signal:
-        rec.recommendation.action,
+        rec.action,
 
       confidence:
-        rec.recommendation.confidence,
+        rec.confidence,
 
       action:
-        `${rec.recommendation.action} ${rec.recommendation.side}`,
+        `${rec.action} ${rec.side}`,
 
       suggestedSize:
-        rec.recommendation.suggestedSize,
+        rec.suggestedSize,
 
       entryPrice:
-        rec.recommendation.entryLimit,
+        rec.entryLimit,
 
       stopLoss:
-        rec.recommendation.stopLoss,
+        rec.stopLoss,
 
       targetPrice:
-        rec.recommendation.takeProfit,
+        rec.takeProfit,
 
       reasoning:
-        rec.recommendation.reasoning,
+        rec.reasoning,
     });
   }
 
@@ -424,14 +470,11 @@ export async function quickAnalyze(headline: string) {
 
 /**
  * Extract keywords from a headline.
- *
- * Currently retained for future market-search
- * optimization.
  */
 function extractKeywords(
   headline: string
 ): string {
-  const stopWords = [
+  const stopWords = new Set([
     'the',
     'a',
     'an',
@@ -447,7 +490,7 @@ function extractKeywords(
     'for',
     'on',
     'by',
-  ];
+  ]);
 
   const words =
     headline
@@ -457,7 +500,7 @@ function extractKeywords(
   const keywords =
     words.filter(
       (word) =>
-        !stopWords.includes(word) &&
+        !stopWords.has(word) &&
         word.length > 2
     );
 
@@ -467,14 +510,16 @@ function extractKeywords(
 }
 
 /**
- * Generate human-readable summary.
+ * Generate a human-readable summary.
  */
 function generateSummary(
   headline: string,
   markets: MarketSignal[]
 ): string {
   if (markets.length === 0) {
-    return `No significant arbitrage opportunities found for: "${headline}"`;
+    return (
+      `No significant arbitrage opportunities found for: "${headline}"`
+    );
   }
 
   const topSignals =
@@ -484,7 +529,9 @@ function generateSummary(
     );
 
   if (topSignals.length === 0) {
-    return `Found ${markets.length} related markets but no significant edge (>5%) detected.`;
+    return (
+      `Found ${markets.length} related markets but no significant edge (>5%) detected.`
+    );
   }
 
   const buySignals =
@@ -499,16 +546,16 @@ function generateSummary(
         market.edge < 0
     );
 
-  const bestOpportunity =
+  const best =
     topSignals[0];
 
   return (
     `Found ${topSignals.length} arbitrage opportunities: ` +
     `${buySignals.length} BUY signals, ` +
     `${sellSignals.length} SELL signals. ` +
-    `Best opportunity: ${bestOpportunity.question} ` +
+    `Best opportunity: ${best.question} ` +
     `with ${Math.round(
-      bestOpportunity.edgePercent
+      best.edgePercent
     )}% edge.`
   );
 }
